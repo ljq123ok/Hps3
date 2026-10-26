@@ -1,0 +1,6 @@
+{
+  "modelVersion": "5.0.0",
+  "description": "hps3 HarmonyOS PS3 emulator launcher",
+  "dependencies": {},
+  "devDependencies": {}
+}

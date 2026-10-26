@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "hps3 HarmonyOS PS3 emulator"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "hps3"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "hps3"
+    }
+  ]
+}

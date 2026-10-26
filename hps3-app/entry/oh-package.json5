@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "hps3 HarmonyOS PS3 emulator",
+  "main": "",
+  "author": "hps3",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

@@ -1,0 +1,25 @@
+# Local build products and device evidence
+/build-ohos*/
+/hps3-app/**/build/
+/hps3-app/.hvigor/
+/armsx3-upstream/
+/firmware/
+/.verification/
+/release/
+*.hap
+*.so
+*.p7b
+*.p12
+*.der
+*.cer
+*.key
+*.pem
+*.log
+*.jpeg
+*.jpg
+*.png
+*.iso
+*.ISO
+*.PUP
+.DS_Store
+/hps3-app/entry/src/main/ets/pages/Index 2.ets

@@ -1,0 +1,37 @@
+{
+  "app": {
+    // 签名材料不入库。请在 DevEco Studio 中配置本机签名，
+    // 或使用外部 hap-sign-tool 在构建后签名。
+    "products": [
+      {
+        "name": "default",
+        // 本机安装的 SDK 为 HarmonyOS 6.1.1 (API 24)。阶段 0 已确认目标真机为
+        // HarmonyOS 7.0.0 (API 26)，高于本机 SDK，属前向兼容。
+        // targetSdkVersion 取本机 SDK 最高级别；compatibleSdkVersion 取 6.0.0(20) 以覆盖 OS6/OS7。
+        "targetSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.0.0(20)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry"
+    }
+  ]
+}

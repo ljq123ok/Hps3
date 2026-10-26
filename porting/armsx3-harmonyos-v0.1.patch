@@ -1,0 +1,1402 @@
+diff --git a/3rdparty/CMakeLists.txt b/3rdparty/CMakeLists.txt
+index 0a37e61..28cb507 100644
+--- a/3rdparty/CMakeLists.txt
++++ b/3rdparty/CMakeLists.txt
+@@ -130,7 +130,7 @@ add_subdirectory(yaml-cpp)
+ 
+ # OpenGL
+ 
+-if (NOT ANDROID AND NOT APPLE)
++if (NOT ANDROID AND NOT APPLE AND NOT HARMONYOS)
+ 	find_package(OpenGL REQUIRED OPTIONAL_COMPONENTS EGL)
+ 
+ 	add_library(3rdparty_opengl INTERFACE)
+@@ -145,7 +145,7 @@ if (NOT ANDROID AND NOT APPLE)
+ 	else()
+ 		target_link_libraries(3rdparty_opengl INTERFACE OpenGL::GL OpenGL::GLU OpenGL::GLX)
+ 	endif()
+-elseif (ANDROID)
++elseif (ANDROID AND NOT HARMONYOS)
+ 	# ARMSX3: Android has OpenGL, it just spells it OpenGL ES 3.2. The headers come
+ 	# from the NDK sysroot, so nothing needs to be found or added to the include
+ 	# path. Nothing is LINKED either, on purpose: rpcs3/Emu/RSX/GL/OpenGL_ES.cpp
+@@ -153,9 +153,13 @@ elseif (ANDROID)
+ 	# NEEDED dependency on libGLESv2.so would bind to the system driver forever and
+ 	# make ANGLE impossible. libdl comes with the NDK by default.
+ 	add_library(3rdparty_opengl INTERFACE)
+-else()
++	elseif (HARMONYOS)
++	# Hps3 renders through a HarmonyOS-provided Vulkan surface; the desktop
++	# OpenGL/GLES loader paths are not available to the native core.
+ 	add_library(3rdparty_opengl INTERFACE)
+ 	target_compile_definitions(3rdparty_opengl INTERFACE WITHOUT_OPENGL=1)
++	else()
++	add_library(3rdparty_opengl INTERFACE)
+ endif()
+ 
+ # stblib
+@@ -175,7 +179,7 @@ else()
+ endif()
+ 
+ # Oboe (Android only)
+-if(ANDROID)
++if(ANDROID AND NOT HARMONYOS)
+ 	message(STATUS "Using static oboe from 3rdparty")
+ 	add_subdirectory(oboe EXCLUDE_FROM_ALL)
+ endif()
+@@ -202,7 +206,7 @@ endif()
+ # Vulkan
+ set(VULKAN_TARGET 3rdparty_dummy_lib)
+ if(USE_VULKAN)
+-	if(APPLE)
++	if(APPLE AND NOT HARMONYOS)
+ 		if(USE_SYSTEM_MVK)
+ 			message(STATUS "RPCS3: Using system MoltenVK")
+ 		else()
+@@ -246,7 +250,7 @@ if(USE_VULKAN)
+ 		set(VULKAN_TARGET 3rdparty_vulkan)
+ 	else()
+ 		message(WARNING "USE_VULKAN was enabled, but libvulkan was not found. RPCS3 will be compiled without Vulkan support.")
+-		if(APPLE)
++		if(APPLE AND NOT HARMONYOS)
+ 			message(FATAL_ERROR "To build without Vulkan support on macOS, please disable USE_VULKAN.")
+ 		endif()
+ 	endif()
+@@ -279,7 +283,7 @@ if(USE_SDL)
+ endif()
+ 
+ # OpenAL
+-if (NOT ANDROID)
++if (NOT ANDROID AND NOT HARMONYOS)
+ 	add_subdirectory(OpenAL EXCLUDE_FROM_ALL)
+ else()
+ 	add_library(3rdparty_openal INTERFACE)
+@@ -331,7 +335,7 @@ set_property(TARGET ${FAUDIO_TARGET} PROPERTY FOLDER "3rdparty/")
+ 
+ 
+ # FFMPEG
+-if(NOT ANDROID)
++if(NOT ANDROID AND NOT HARMONYOS)
+ 	add_library(3rdparty_ffmpeg INTERFACE)
+ 
+ 	# Select the version of ffmpeg to use, default is builtin
+@@ -376,7 +380,7 @@ endif()
+ 
+ # GLEW
+ add_library(3rdparty_glew INTERFACE)
+-if(NOT MSVC AND NOT ANDROID AND NOT APPLE)
++if(NOT MSVC AND NOT ANDROID AND NOT APPLE AND NOT HARMONYOS)
+ 	find_package(GLEW REQUIRED)
+ 	target_link_libraries(3rdparty_glew INTERFACE GLEW::GLEW)
+ endif()
+diff --git a/3rdparty/FAudio b/3rdparty/FAudio
+index c54eb8f..6839b88 160000
+--- a/3rdparty/FAudio
++++ b/3rdparty/FAudio
+@@ -1 +1 @@
+-Subproject commit c54eb8f1223fe3b89e46ce929dbc3fd1a0601029
++Subproject commit 6839b88e304a046ae1a609ff14a085371e02a4e0
+diff --git a/3rdparty/hidapi/CMakeLists.txt b/3rdparty/hidapi/CMakeLists.txt
+index cdaac85..2fff718 100644
+--- a/3rdparty/hidapi/CMakeLists.txt
++++ b/3rdparty/hidapi/CMakeLists.txt
+@@ -18,8 +18,16 @@ else()
+ 
+ 	if(APPLE)
+ 		target_link_libraries(3rdparty_hidapi INTERFACE hidapi_darwin "-framework CoreFoundation" "-framework IOKit")
+-	elseif(CMAKE_SYSTEM MATCHES "Linux")
+-		target_link_libraries(3rdparty_hidapi INTERFACE hidapi-hidraw udev)
++	elseif(CMAKE_SYSTEM MATCHES "Linux" OR HARMONYOS)
++		if(HARMONYOS)
++			# CMAKE_SYSTEM_NAME is "OHOS" here, so this port does not match the
++			# Linux branch below. Without the in-tree fix, the final else() would
++			# emit the non-existent "-lusb" (and drop the real libusb archive).
++			# Link the usb-1.0 target built by 3rdparty/libusb instead.
++			target_link_libraries(3rdparty_hidapi INTERFACE hidapi-libusb usb-1.0)
++		else()
++			target_link_libraries(3rdparty_hidapi INTERFACE hidapi-hidraw udev)
++		endif()
+ 	elseif(WIN32)
+ 		target_link_libraries(3rdparty_hidapi INTERFACE hidapi::hidapi hidapi::include Shlwapi.lib)
+ 	elseif(ANDROID)
+diff --git a/3rdparty/libusb/os.cmake b/3rdparty/libusb/os.cmake
+index dc87180..6315128 100644
+--- a/3rdparty/libusb/os.cmake
++++ b/3rdparty/libusb/os.cmake
+@@ -77,7 +77,7 @@ int main()
+ elseif (UNIX)
+ 	# Unix is for all *NIX systems including OSX
+ 	add_compile_definitions(PLATFORM_POSIX=1 HAVE_CLOCK_GETTIME)
+-	if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux" OR ANDROID)
++	if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux" OR ANDROID OR HARMONYOS)
+ 		set(OS_LINUX 1)
+ 
+ 		set(PLATFORM_SRC
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8487ab6..b381d56 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -9,6 +9,9 @@ endif()
+ 
+ project(rpcs3 LANGUAGES C CXX)
+ 
++# Hps3: select the core-only Android source shape while targeting HarmonyOS.
++option(HARMONYOS "Build the native Hps3 port for HarmonyOS" OFF)
++
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+ 
+@@ -129,12 +132,35 @@ endif()
+ # ARMSX3: upstream skips its FFMPEG block on Android (3rdparty/CMakeLists.txt
+ # `if(NOT ANDROID)`) but still aliases 3rdparty::ffmpeg -> 3rdparty_ffmpeg
+ # unguarded, so the target has to exist before 3rdparty/ is processed.
+-if(ANDROID)
++if(ANDROID AND NOT HARMONYOS)
+     include(${CMAKE_CURRENT_SOURCE_DIR}/android/ffmpeg.cmake)
++elseif(HARMONYOS)
++    # Android FFmpeg prebuilts target Bionic and cannot be linked into an OHOS HAP.
++    # Use a matching static FFmpeg build compiled for the OHOS target instead.
++    add_library(3rdparty_ffmpeg INTERFACE)
++    set(HPS3_FFMPEG_ROOT "" CACHE PATH "OHOS-target FFmpeg source/build directory")
++    if(NOT HPS3_FFMPEG_ROOT OR NOT EXISTS "${HPS3_FFMPEG_ROOT}/libavcodec/libavcodec.a")
++        message(FATAL_ERROR "HarmonyOS core needs OHOS-target FFmpeg static libraries; set HPS3_FFMPEG_ROOT")
++    endif()
++    target_include_directories(3rdparty_ffmpeg SYSTEM INTERFACE "${HPS3_FFMPEG_ROOT}/install/include")
++    target_link_libraries(3rdparty_ffmpeg INTERFACE
++        "${HPS3_FFMPEG_ROOT}/libavformat/libavformat.a"
++        "${HPS3_FFMPEG_ROOT}/libavcodec/libavcodec.a"
++        "${HPS3_FFMPEG_ROOT}/libswscale/libswscale.a"
++        "${HPS3_FFMPEG_ROOT}/libswresample/libswresample.a"
++        "${HPS3_FFMPEG_ROOT}/libavutil/libavutil.a"
++    )
+ endif()
+ 
+ add_subdirectory(3rdparty)
+ 
++# RPCS3 core bitcode is built with the toolchain's native TLS model. Keep
++# protobuf and the OHOS bridge objects on that same model; the SDK Clang's
++# emulated-TLS default creates incompatible __emutls descriptors across LTO.
++if(HARMONYOS AND TARGET libprotobuf)
++    target_compile_options(libprotobuf PRIVATE -fno-emulated-tls)
++endif()
++
+ if (DISABLE_LTO)
+     if (CMAKE_C_FLAGS)
+         string(REGEX REPLACE "-flto[^ ]*" "" CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
+@@ -169,7 +195,7 @@ add_subdirectory(rpcs3)
+ 
+ # ARMSX3: the Android JNI shared library. Kept behind ANDROID so desktop builds
+ # are byte-for-byte unaffected.
+-if(ANDROID)
++if(ANDROID AND NOT HARMONYOS)
+     add_subdirectory(android)
+ endif()
+ 
+diff --git a/Utilities/File.cpp b/Utilities/File.cpp
+index 843129e..1647b67 100644
+--- a/Utilities/File.cpp
++++ b/Utilities/File.cpp
+@@ -15,7 +15,7 @@
+ 
+ using namespace std::literals::string_literals;
+ 
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(HARMONYOS)
+ std::string g_android_executable_dir;
+ std::string g_android_config_dir;
+ std::string g_android_cache_dir;
+@@ -2456,7 +2456,7 @@ bool fs::file::strict_read_check(u64 offset, u64 _size, u64 type_size) const
+ 
+ std::string fs::get_executable_path()
+ {
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(HARMONYOS)
+ 	return g_android_executable_dir + "/dummy-rpcs3.apk";
+ #else
+ 	// Use magic static
+@@ -2509,7 +2509,7 @@ std::string fs::get_executable_path()
+ 
+ std::string fs::get_executable_dir()
+ {
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(HARMONYOS)
+ 	return g_android_executable_dir;
+ #else
+ 	// Use magic static
+@@ -2530,7 +2530,7 @@ std::string fs::get_executable_dir()
+ 
+ const std::string& fs::get_config_dir([[maybe_unused]] bool get_config_subdirectory)
+ {
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(HARMONYOS)
+ 	return g_android_config_dir;
+ #else
+ 	// Use magic static
+@@ -2627,7 +2627,7 @@ const std::string& fs::get_config_dir([[maybe_unused]] bool get_config_subdirect
+ 
+ const std::string& fs::get_cache_dir()
+ {
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(HARMONYOS)
+ 	return g_android_cache_dir;
+ #else
+ 	static const std::string s_dir = []
+diff --git a/Utilities/JITLLVM.cpp b/Utilities/JITLLVM.cpp
+index 3335a67..360a6a6 100644
+--- a/Utilities/JITLLVM.cpp
++++ b/Utilities/JITLLVM.cpp
+@@ -547,6 +547,20 @@ class ObjectCache final : public llvm::ObjectCache
+ 	const std::add_pointer_t<jit_compiler> m_compiler = nullptr;
+ 
+ public:
++	static bool matches_target(const llvm::MemoryBuffer& buffer)
++	{
++#if defined(HARMONYOS) && defined(ARCH_ARM64)
++		// Older cross builds inherited the macOS build host's default triple.
++		// Those Mach-O objects parse successfully but cannot be reused by OHOS.
++		const auto data = buffer.getBuffer();
++		return data.size() >= 20 && std::memcmp(data.data(), "\177ELF", 4) == 0 &&
++			static_cast<u8>(data[4]) == 2 && static_cast<u8>(data[5]) == 1 &&
++			static_cast<u8>(data[18]) == 183 && static_cast<u8>(data[19]) == 0;
++#else
++		return true;
++#endif
++	}
++
+ 	ObjectCache(const std::string& path, jit_compiler* compiler = nullptr)
+ 		: m_path(path)
+ 		, m_compiler(compiler)
+@@ -622,6 +636,8 @@ public:
+ 
+ 			auto buf = llvm::WritableMemoryBuffer::getNewUninitMemBuffer(out.size());
+ 			std::memcpy(buf->getBufferStart(), out.data(), out.size());
++			if (!matches_target(*buf))
++				return nullptr;
+ 			return buf;
+ 		}
+ 
+@@ -634,6 +650,8 @@ public:
+ 
+ 			auto buf = llvm::WritableMemoryBuffer::getNewUninitMemBuffer(cached.size());
+ 			cached.read(buf->getBufferStart(), buf->getBufferSize());
++			if (!matches_target(*buf))
++				return nullptr;
+ 			return buf;
+ 		}
+ 
+@@ -751,7 +769,11 @@ std::string jit_compiler::cpu(std::string_view _cpu)
+ 
+ std::string jit_compiler::triple1()
+ {
+-#if defined(_WIN32)
++#if defined(HARMONYOS) && defined(ARCH_ARM64)
++	// LLVM's configured default describes the machine that built LLVM, which
++	// can be macOS. OHOS needs ELF relocations and its platform-register ABI.
++	return llvm::Triple::normalize("aarch64-unknown-linux-ohos");
++#elif defined(_WIN32)
+ 	return llvm::Triple::normalize(llvm::sys::getProcessTriple());
+ #elif defined(__APPLE__) && defined(ARCH_X64)
+ 	return llvm::Triple::normalize("x86_64-unknown-linux-gnu");
+@@ -766,7 +788,9 @@ std::string jit_compiler::triple1()
+ 
+ std::string jit_compiler::triple2()
+ {
+-#if defined(_WIN32) && defined(ARCH_X64)
++#if defined(HARMONYOS) && defined(ARCH_ARM64)
++	return llvm::Triple::normalize("aarch64-unknown-linux-ohos");
++#elif defined(_WIN32) && defined(ARCH_X64)
+ 	return llvm::Triple::normalize("x86_64-unknown-linux-gnu");
+ #elif defined(_WIN32) && defined(ARCH_ARM64)
+ 	return llvm::Triple::normalize("aarch64-unknown-linux-gnu");
+diff --git a/Utilities/Thread.cpp b/Utilities/Thread.cpp
+index ee0cfbb..5622577 100644
+--- a/Utilities/Thread.cpp
++++ b/Utilities/Thread.cpp
+@@ -15,6 +15,9 @@
+ #include "Utilities/JIT.h"
+ #include <cfenv>
+ #include <charconv>
++#ifdef HARMONYOS
++#include <dlfcn.h>
++#endif
+ 
+ #ifdef ARCH_ARM64
+ #include "Emu/CPU/Backends/AArch64/AArch64Signal.h"
+@@ -3167,8 +3170,49 @@ static int install_fault_handler(int sig, const struct ::sigaction& sa)
+ // So: capture the handler the kernel currently calls (libsigchain's, which fronts ART), then
+ // replace it, and never register through the interposed entry point for this signal. The chain we
+ // forward into then does not contain us.
++static void signal_handler(int sig, siginfo_t* info, void* uct) noexcept;
++
++#ifdef HARMONYOS
++std::atomic<u64> g_ohos_recovered_faults{0};
++
++// OHOS runs its special handlers (including the crash reporter) before the
++// handler installed through sigaction. Guest write-protection faults must be
++// consumed there, before the crash reporter treats them as fatal.
++struct ohos_signal_chain_action
++{
++	bool (*handler)(int, siginfo_t*, void*);
++	sigset_t mask;
++	int flags;
++};
++
++static bool ohos_guest_fault(int sig, siginfo_t* info, void* context)
++{
++	if (sig != SIGSEGV || !info || !thread_ctrl::get_current()) return false;
++	const u64 exec = (reinterpret_cast<u64>(info->si_addr) - reinterpret_cast<u64>(vm::g_exec_addr)) / 2;
++	const u64 seg = reinterpret_cast<u64>(info->si_addr) - reinterpret_cast<u64>(vm::g_exec_addr) - vm::g_exec_addr_seg_offset;
++	if (!vm::try_get_addr(info->si_addr).second && exec >= 0x100000000ull && seg >= 0x80000000ull)
++		return false;
++	signal_handler(sig, info, context);
++	g_ohos_recovered_faults.fetch_add(1, std::memory_order_relaxed);
++	return true;
++}
++#endif
++
+ static bool install_fault_handler_first(int sig, const struct ::sigaction& sa)
+ {
++#ifdef HARMONYOS
++	if (sig == SIGSEGV)
++	{
++		using add_fn = void (*)(int, ohos_signal_chain_action*);
++		if (auto add = reinterpret_cast<add_fn>(::dlsym(RTLD_DEFAULT, "add_special_signal_handler")))
++		{
++			ohos_signal_chain_action action{ohos_guest_fault, {}, 0};
++			sigemptyset(&action.mask);
++			add(sig, &action);
++			return true;
++		}
++	}
++#endif
+ #ifdef __ANDROID__
+ 	if (const armsx3_sigaction_fn real_sa = real_sigaction())
+ 	{
+@@ -3913,8 +3957,8 @@ void thread_base::start()
+ #else
+ 	pthread_t thread_id{};
+ 
+-#ifdef __ANDROID__
+-	// Give Android threads the stack desktop Linux already gives them.
++#if defined(__ANDROID__) || defined(HARMONYOS)
++	// Give mobile threads the stack desktop Linux already gives them.
+ 	//
+ 	// bionic's default is 1 MB; glibc's is 8 MB. Passing null attributes here meant every emulator
+ 	// thread on Android ran on an eighth of the stack the same code gets everywhere else, and
+@@ -5297,9 +5341,9 @@ void thread_ctrl::set_thread_affinity_mask(u64 mask)
+ 		}
+ 	}
+ 
+-#ifdef ANDROID
+-	// bionic has no pthread_setaffinity_np. sched_setaffinity with pid 0 targets
+-	// the calling THREAD on Linux, which is what we want.
++#if defined(ANDROID) || defined(__MUSL__)
++	// bionic and the OHOS musl libc omit pthread_setaffinity_np. sched_setaffinity
++	// with pid 0 targets the calling thread on both systems.
+ 	if (sched_setaffinity(0, sizeof(cpu_set_t), &cs) != 0)
+ 	{
+ 		sig_log.error("Failed to set thread affinity 0x%x: errno %d.", mask, errno);
+@@ -5330,15 +5374,23 @@ u64 thread_ctrl::get_thread_affinity_mask()
+ 
+ 	sig_log.error("Failed to get thread affinity mask.");
+ 	return 0;
+-#elif !defined(ANDROID) && (defined(__linux__) || defined(__DragonFly__) || defined(__FreeBSD__))
++#elif (defined(ANDROID) || defined(__MUSL__) || defined(__linux__) || defined(__DragonFly__) || defined(__FreeBSD__))
+ 	cpu_set_t cs;
+ 	CPU_ZERO(&cs);
+ 
++#if defined(ANDROID) || defined(__MUSL__)
++	if (sched_getaffinity(0, sizeof(cpu_set_t), &cs) != 0)
++	{
++		sig_log.error("Failed to get thread affinity mask: errno %d.", errno);
++		return 0;
++	}
++#else
+ 	if (int err = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cs))
+ 	{
+ 		sig_log.error("Failed to get thread affinity mask: error %d.", err);
+ 		return 0;
+ 	}
++#endif
+ 
+ 	u64 result = 0;
+ 
+diff --git a/rpcs3/CMakeLists.txt b/rpcs3/CMakeLists.txt
+index cafc53b..fae8f50 100644
+--- a/rpcs3/CMakeLists.txt
++++ b/rpcs3/CMakeLists.txt
+@@ -23,7 +23,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
+     endif()
+ endif()
+ 
+-if (NOT ANDROID)
++if (NOT ANDROID AND NOT HARMONYOS)
+     # Qt
+     # finds Qt libraries and setups custom commands for MOC and UIC
+     # Must be done here because generated MOC and UIC targets cant
+@@ -34,13 +34,67 @@ endif()
+ # subdirectories
+ add_subdirectory(Emu)
+ 
+-if (NOT ANDROID)
++if(HARMONYOS AND HPS3_BUILD_NATIVE_BRIDGE)
++	set(HPS3_OHOS_SYSROOT "${CMAKE_SYSROOT}" CACHE PATH "HarmonyOS SDK sysroot for the hps3 N-API bridge")
++	find_library(HPS3_NAPI_LIBRARY ace_napi.z
++		PATHS "${HPS3_OHOS_SYSROOT}/usr/lib/aarch64-linux-ohos"
++		NO_DEFAULT_PATH REQUIRED)
++	find_library(HPS3_ACE_NDK_LIBRARY ace_ndk.z
++		PATHS "${HPS3_OHOS_SYSROOT}/usr/lib/aarch64-linux-ohos"
++		NO_DEFAULT_PATH REQUIRED)
++	# The bridge reports diagnostics with OH_LOG_Print, which lives in hilog_ndk.
++	find_library(HPS3_HILOG_LIBRARY hilog_ndk.z
++		PATHS "${HPS3_OHOS_SYSROOT}/usr/lib/aarch64-linux-ohos"
++		NO_DEFAULT_PATH REQUIRED)
++	# RPCS3 keeps Input/ in the desktop executable (or the Android shell), not
++	# in rpcs3_emu. Add the platform-safe subset needed by cellPad/cellGem and
++	# device enumeration; Qt and desktop-only input backends stay out.
++	set(HPS3_INPUT_SOURCES
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/virtual_pad_handler.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/pad_thread.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/product_info.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/hid_pad_handler.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/ds3_pad_handler.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/ds4_pad_handler.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/dualsense_pad_handler.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/skateboard_pad_handler.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/ps_move_handler.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/ps_move_config.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/ps_move_calibration.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/ps_move_tracker.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/Input/mouse_gyro_handler.cpp")
++	add_library(hps3_native_bridge SHARED
++		"${CMAKE_SOURCE_DIR}/../hps3-app/entry/src/main/cpp/hps3_napi.cpp"
++		"${CMAKE_SOURCE_DIR}/../hps3-app/entry/src/main/cpp/hps3_platform.cpp"
++		"${CMAKE_SOURCE_DIR}/rpcs3/rpcs3_version.cpp"
++		${HPS3_INPUT_SOURCES})
++	target_include_directories(hps3_native_bridge PRIVATE
++		"${CMAKE_SOURCE_DIR}/rpcs3"
++		"${CMAKE_SOURCE_DIR}/../cmake/ohos-compat"
++		"${HPS3_OHOS_SYSROOT}/usr/include")
++	target_compile_definitions(hps3_native_bridge PRIVATE HARMONYOS _LIBCPP_ENABLE_EXPERIMENTAL _GNU_SOURCE _BSD_SOURCE)
++	target_compile_options(hps3_native_bridge PRIVATE -fno-emulated-tls)
++	target_link_options(hps3_native_bridge PRIVATE
++		-nostartfiles
++		"-L${HPS3_OHOS_SYSROOT}/../llvm/lib/aarch64-linux-ohos")
++	target_link_libraries(hps3_native_bridge PRIVATE
++		rpcs3_emu
++		3rdparty::fusion
++		3rdparty::hidapi
++		3rdparty::libusb
++		"${HPS3_NAPI_LIBRARY}"
++		"${HPS3_ACE_NDK_LIBRARY}"
++		"${HPS3_HILOG_LIBRARY}")
++	set_target_properties(hps3_native_bridge PROPERTIES OUTPUT_NAME hps3core)
++endif()
++
++if (NOT ANDROID AND NOT HARMONYOS)
+     add_subdirectory(rpcs3qt)
+ endif()
+ 
+ gen_git_version(${CMAKE_CURRENT_SOURCE_DIR})
+ 
+-if (NOT ANDROID)
++if (NOT ANDROID AND NOT HARMONYOS)
+     # Build rpcs3_lib
+     add_library(rpcs3_lib STATIC)
+ 
+diff --git a/rpcs3/Crypto/utils.cpp b/rpcs3/Crypto/utils.cpp
+index c23893c..855261c 100644
+--- a/rpcs3/Crypto/utils.cpp
++++ b/rpcs3/Crypto/utils.cpp
+@@ -19,7 +19,8 @@
+ #include <memory>
+ #include <string>
+ #include <string_view>
+-#include <span>
++#include <span>
++#include <system_error>
+ 
+ // Auxiliary functions (endian swap, xor).
+ 
+diff --git a/rpcs3/Emu/CMakeLists.txt b/rpcs3/Emu/CMakeLists.txt
+index b85c369..7744965 100644
+--- a/rpcs3/Emu/CMakeLists.txt
++++ b/rpcs3/Emu/CMakeLists.txt
+@@ -21,6 +21,16 @@ add_library(rpcs3_emu STATIC
+     IPC_socket.cpp
+ )
+ 
++if(HARMONYOS)
++    # DevEco Studio's bundled libc++ does not ship <source_location>.
++    target_include_directories(rpcs3_emu BEFORE PRIVATE
++        "${CMAKE_CURRENT_LIST_DIR}/../../../cmake/ohos-compat")
++    # The SDK libc++ hides its implemented ranges algorithms unless explicitly enabled.
++    # The OHOS musl headers hide locale extensions and Linux interface structs
++    # unless a feature-test macro is enabled. RPCS3 uses these POSIX APIs.
++    target_compile_definitions(rpcs3_emu PRIVATE HARMONYOS _LIBCPP_ENABLE_EXPERIMENTAL _GNU_SOURCE _BSD_SOURCE)
++endif()
++
+ if(USE_LTO)
+     set_target_properties(rpcs3_emu PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+ endif()
+@@ -152,10 +162,13 @@ target_sources(rpcs3_emu PRIVATE
+     Audio/AudioDumper.cpp
+     Audio/AudioBackend.cpp
+     Audio/Cubeb/CubebBackend.cpp
+-    Audio/Oboe/OboeBackend.cpp
+     Audio/Cubeb/cubeb_enumerator.cpp
+ )
+ 
++if(ANDROID AND NOT HARMONYOS)
++    target_sources(rpcs3_emu PRIVATE Audio/Oboe/OboeBackend.cpp)
++endif()
++
+ if(USE_FAUDIO)
+     find_package(SDL3)
+     if(SDL3_FOUND AND SDL3_VERSION VERSION_GREATER_EQUAL 3.2.0)
+@@ -588,7 +601,7 @@ target_sources(rpcs3_emu PRIVATE
+     RSX/Utils/rsx_utils.cpp
+ )
+ 
+-if(NOT APPLE)
++if(NOT APPLE AND NOT HARMONYOS)
+     target_sources(rpcs3_emu PRIVATE
+         RSX/GL/GLCommonDecompiler.cpp
+         RSX/GL/GLCompute.cpp
+@@ -626,7 +639,7 @@ if(NOT APPLE)
+     # retargets the generated GLSL. Both are Android-only and self-disable via
+     # RSX_GLES, so listing them unconditionally would still be inert - they are
+     # guarded here anyway so a desktop build never even parses them.
+-    if(ANDROID)
++    if(ANDROID AND NOT HARMONYOS)
+         target_sources(rpcs3_emu PRIVATE
+             RSX/GL/OpenGL_ES.cpp
+             RSX/GL/GLSLES.cpp
+@@ -709,9 +722,9 @@ if(TARGET 3rdparty_vulkan)
+         RSX/VK/VulkanAPI.cpp
+         # Android Vulkan dispatch table (adrenotools custom-driver support).
+         # Generated by android/tools/gen_vk_loader.py; self-disables off Android.
+-        RSX/VK/vk_android_loader.cpp
++        $<$<AND:$<BOOL:${ANDROID}>,$<NOT:$<BOOL:${HARMONYOS}>>>:${CMAKE_CURRENT_SOURCE_DIR}/RSX/VK/vk_android_loader.cpp>
+     )
+-    if(APPLE)
++    if(APPLE AND NOT HARMONYOS)
+         target_sources(rpcs3_emu PRIVATE
+             RSX/VK/vkutils/metal_layer.mm
+         )
+diff --git a/rpcs3/Emu/CPU/Backends/AArch64/AArch64Signal.cpp b/rpcs3/Emu/CPU/Backends/AArch64/AArch64Signal.cpp
+index 6b411e8..dcfbcc4 100644
+--- a/rpcs3/Emu/CPU/Backends/AArch64/AArch64Signal.cpp
++++ b/rpcs3/Emu/CPU/Backends/AArch64/AArch64Signal.cpp
+@@ -27,19 +27,28 @@ namespace aarch64
+     {
+         u32 offset = 0;
+         const auto& mctx = ctx->uc_mcontext;
++        // Linux libc headers use either a byte array or (OHOS/musl) an aligned
++        // long-double array here. Record sizes are always measured in bytes.
++        const auto* records = reinterpret_cast<const u8*>(mctx.__reserved);
+ 
+-        while ((offset + 4) < sizeof(mctx.__reserved))
++        while (sizeof(aarch64_cpu_ctx_block) <= sizeof(mctx.__reserved) - offset)
+         {
+-            const auto head = reinterpret_cast<const aarch64_cpu_ctx_block*>(&mctx.__reserved[offset]);
++            const auto head = reinterpret_cast<const aarch64_cpu_ctx_block*>(records + offset);
+             if (!head->magic)
+             {
+                 // End of linked list
+                 return nullptr;
+             }
+ 
++            if (head->size < sizeof(aarch64_cpu_ctx_block) ||
++                head->size > sizeof(mctx.__reserved) - offset || head->size % 16)
++            {
++                return nullptr;
++            }
++
+             if (head->magic == ESR_CTX_MAGIC)
+             {
+-                return utils::bless<const aarch64_esr_ctx>(head);
++                return head->size >= sizeof(aarch64_esr_ctx) ? utils::bless<const aarch64_esr_ctx>(head) : nullptr;
+             }
+ 
+             offset += head->size;
+diff --git a/rpcs3/Emu/Cell/Modules/cellSysmodule.cpp b/rpcs3/Emu/Cell/Modules/cellSysmodule.cpp
+index 98154f3..40a6b88 100644
+--- a/rpcs3/Emu/Cell/Modules/cellSysmodule.cpp
++++ b/rpcs3/Emu/Cell/Modules/cellSysmodule.cpp
+@@ -302,7 +302,7 @@ namespace
+ 		CELL_SYSMODULE_SYSUTIL_NP_TROPHY
+ 	};
+ 
+-	constexpr bit_set<INTERNAL_MODULES_COUNT> LOADABLE_INTERNAL_MODULES
++	const bit_set<INTERNAL_MODULES_COUNT> LOADABLE_INTERNAL_MODULES
+ 	{
+ 		"0010000"          // 0xf054
+ 		"0000000000010000" // 0xf044
+@@ -312,7 +312,7 @@ namespace
+ 		"0000010000000000" // 0xf00a
+ 	};
+ 
+-	constexpr bit_set<INTERNAL_MODULES_COUNT> LOADABLE_INTERNAL_MODULES_EX
++	const bit_set<INTERNAL_MODULES_COUNT> LOADABLE_INTERNAL_MODULES_EX
+ 	{
+ 		"1110111"          // 0xf050, 0xf051, 0xf052, 0xf054, 0xf055, 0xf056
+ 		"1110011111111011" // 0xf040, 0xf041, 0xf043, 0xf044, 0xf045, 0xf046, 0xf047, 0xf048, 0xf049, 0xf04a, 0xf04d, 0xf04e, 0xf04f
+@@ -392,12 +392,14 @@ template <CellSysmoduleModuleID module_id>
+ 	case CELL_SYSMODULE_FS:
+ 	{
+ 		// "F.E.A.R. First Encounter Assault Recon" needs an older version of cellFs
+-		return std::ranges::contains(std::array{ "BLUS30003", "BLES00035", "BLES00036" }, std::string_view{ paramsfo.get_ptr() + 1, 9 });
++		const auto titles = std::array{ "BLUS30003", "BLES00035", "BLES00036" };
++		return std::find(titles.begin(), titles.end(), std::string_view{ paramsfo.get_ptr() + 1, 9 }) != titles.end();
+ 	}
+ 	case CELL_SYSMODULE_SAIL:
+ 	{
+ 		// "Armored Core 4" needs a frame buffer release delay of three frames
+-		return std::ranges::contains(std::array{ "BLJM60012", "BLES00039", "BLUS30027", "BLKS20001" }, std::string_view{ paramsfo.get_ptr() + 1, 9 });
++		const auto titles = std::array{ "BLJM60012", "BLES00039", "BLUS30027", "BLKS20001" };
++		return std::find(titles.begin(), titles.end(), std::string_view{ paramsfo.get_ptr() + 1, 9 }) != titles.end();
+ 	}
+ 	default:
+ 		std::unreachable();
+diff --git a/rpcs3/Emu/Cell/PPUThread.cpp b/rpcs3/Emu/Cell/PPUThread.cpp
+index ba22818..4ec5de4 100644
+--- a/rpcs3/Emu/Cell/PPUThread.cpp
++++ b/rpcs3/Emu/Cell/PPUThread.cpp
+@@ -6340,7 +6340,11 @@ bool ppu_initialize(const ppu_module<lv2_obj>& info, bool check_only, u64 file_s
+ 				settings += ppu_settings::daz_and_ftz;
+ 
+ 			// Write version, hash, CPU, settings
++#ifdef HARMONYOS
++			fmt::append(obj_name, "v9-kusa-ohos-%s-%s-%s.obj", fmt::base57(output, 16), fmt::base57(settings), jit_compiler::cpu(g_cfg.core.llvm_cpu.to_string()));
++#else
+ 			fmt::append(obj_name, "v9-kusa-%s-%s-%s.obj", fmt::base57(output, 16), fmt::base57(settings), jit_compiler::cpu(g_cfg.core.llvm_cpu.to_string()));
++#endif
+ 		}
+ 
+ 		if (cpu ? cpu->state.all_of(cpu_flag::exit) : Emu.IsStopped())
+diff --git a/rpcs3/Emu/Cell/SPUCommonRecompiler.cpp b/rpcs3/Emu/Cell/SPUCommonRecompiler.cpp
+index 103070b..0e2b8e1 100644
+--- a/rpcs3/Emu/Cell/SPUCommonRecompiler.cpp
++++ b/rpcs3/Emu/Cell/SPUCommonRecompiler.cpp
+@@ -45,7 +45,15 @@ struct span_less
+ {
+ 	static auto compare(const std::span<T>& lhs, const std::span<T>& rhs) noexcept
+ 	{
+-		return std::lexicographical_compare_three_way(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
++		const usz common_size = std::min(lhs.size(), rhs.size());
++
++		for (usz i = 0; i < common_size; ++i)
++		{
++			if (lhs[i] < rhs[i]) return std::strong_ordering::less;
++			if (rhs[i] < lhs[i]) return std::strong_ordering::greater;
++		}
++
++		return lhs.size() <=> rhs.size();
+ 	}
+ 
+ 	bool operator()(const std::span<T>& lhs, const std::span<T>& rhs) const noexcept
+diff --git a/rpcs3/Emu/Io/pad_config_types.cpp b/rpcs3/Emu/Io/pad_config_types.cpp
+index 7a432cd..583c9e5 100644
+--- a/rpcs3/Emu/Io/pad_config_types.cpp
++++ b/rpcs3/Emu/Io/pad_config_types.cpp
+@@ -25,7 +25,7 @@ void fmt_class_string<pad_handler>::format(std::string& out, u64 arg)
+ #ifdef HAVE_LIBEVDEV
+ 		case pad_handler::evdev: return "Evdev";
+ #endif
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || defined(HARMONYOS)
+ 		case pad_handler::virtual_pad: return "Virtual";
+ #endif
+ 		}
+diff --git a/rpcs3/Emu/Io/pad_config_types.h b/rpcs3/Emu/Io/pad_config_types.h
+index 162c330..4408f46 100644
+--- a/rpcs3/Emu/Io/pad_config_types.h
++++ b/rpcs3/Emu/Io/pad_config_types.h
+@@ -21,7 +21,7 @@ enum class pad_handler
+ #ifdef HAVE_LIBEVDEV
+ 	evdev,
+ #endif
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || defined(HARMONYOS)
+ 	virtual_pad,
+ #endif
+ };
+diff --git a/rpcs3/Emu/NP/clans_client.cpp b/rpcs3/Emu/NP/clans_client.cpp
+index ae859d7..fd0e76d 100644
+--- a/rpcs3/Emu/NP/clans_client.cpp
++++ b/rpcs3/Emu/NP/clans_client.cpp
+@@ -1,6 +1,7 @@
+ #include "stdafx.h"
+ 
+ #include <string_view>
++#include <sstream>
+ #include <util/types.hpp>
+ 
+ // wolfssl uses old-style casts which break clang builds
+diff --git a/rpcs3/Emu/NP/rpcn_client.cpp b/rpcs3/Emu/NP/rpcn_client.cpp
+index a653716..dd05015 100644
+--- a/rpcs3/Emu/NP/rpcn_client.cpp
++++ b/rpcs3/Emu/NP/rpcn_client.cpp
+@@ -1,3 +1,7 @@
++#if defined(__MUSL__) && !defined(_BSD_SOURCE)
++#define _BSD_SOURCE 1
++#endif
++
+ #include "stdafx.h"
+ #include "Emu/Cell/lv2/sys_net/sys_net_helpers.h"
+ #include "Emu/NP/ip_address.h"
+diff --git a/rpcs3/Emu/RSX/VK/VKFrameGen.cpp b/rpcs3/Emu/RSX/VK/VKFrameGen.cpp
+index a484c5a..163926f 100644
+--- a/rpcs3/Emu/RSX/VK/VKFrameGen.cpp
++++ b/rpcs3/Emu/RSX/VK/VKFrameGen.cpp
+@@ -848,7 +848,11 @@ namespace vk::frame_gen
+ 	}
+ 
+ #else
+-	bool capture_presented_frame(const vk::command_buffer&, const vk::render_device&, VkImage, VkImageLayout, u32, u32)
++	// Stub for builds without the Android frame-generation shim. The parameter
++	// list must match the declaration in VKFrameGen.h and the VKPresent.cpp call
++	// site, which both pass the guest (pre-upscale) dimensions; omitting them here
++	// left the symbol undefined and broke the OHOS link.
++	bool capture_presented_frame(const vk::command_buffer&, const vk::render_device&, VkImage, VkImageLayout, u32, u32, u32, u32)
+ 	{
+ 		return false;
+ 	}
+diff --git a/rpcs3/Emu/RSX/VK/VKGSRender.cpp b/rpcs3/Emu/RSX/VK/VKGSRender.cpp
+index e482c65..c0eb9a2 100644
+--- a/rpcs3/Emu/RSX/VK/VKGSRender.cpp
++++ b/rpcs3/Emu/RSX/VK/VKGSRender.cpp
+@@ -8,6 +8,7 @@
+ #include "VKCommonPipelineLayout.h"
+ #include "VKCompute.h"
+ #include "VKGSRender.h"
++#include <hilog/log.h>
+ #include "VKFrameGen.h"
+ #include "Emu/RSX/rsx_profiler.h"
+ #include "vkutils/gpu_timer.h"
+@@ -441,7 +442,11 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
+ 	bool gpu_found = false;
+ 	std::string adapter_name = g_cfg.video.vk.adapter;
+ 
+-	display_handle_t display = m_frame->handle();
++	// Port probe: these two calls are the first that depend on the frontend
++	// window adapter, so log the values before they are used.
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "ctor m_frame=%{public}p", static_cast<void*>(m_frame));
++	display_handle_t display = m_frame ? m_frame->handle() : nullptr;
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "display handle=%{public}p", static_cast<void*>(display));
+ 
+ #ifdef HAVE_X11
+ 	std::visit([this](auto&& p) {
+@@ -463,9 +468,12 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
+ 		}
+ 	}
+ 
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "gpu_found=%{public}d gpus=%{public}zu", gpu_found ? 1 : 0, gpus.size());
+ 	if (!gpu_found || adapter_name.empty())
+ 	{
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "create_swapchain begin");
+ 		m_swapchain.reset(m_instance.create_swapchain(display, gpus[0]));
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "create_swapchain end ptr=%{public}p", static_cast<void*>(m_swapchain.get()));
+ 	}
+ 
+ 	if (!m_swapchain)
+@@ -475,24 +483,33 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
+ 		return;
+ 	}
+ 
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step get_device");
+ 	m_device = const_cast<vk::render_device*>(&m_swapchain->get_device());
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step set_current_renderer");
+ 	vk::set_current_renderer(m_swapchain->get_device());
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step vk::init begin");
+ 	vk::init();
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step vk::init done");
+ 
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step frame client size");
+ 	m_swapchain_dims.width = m_frame->client_width();
+ 	m_swapchain_dims.height = m_frame->client_height();
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step size=%{public}u x %{public}u", m_swapchain_dims.width, m_swapchain_dims.height);
+ 
+ 	// Read with the same setting init() reads to pick the present mode. See m_swapchain_framegen.
+ 	m_swapchain_framegen = g_cfg.video.frame_generation != frame_generation_mode::off;
+ 
++	OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step swapchain->init begin");
+ 	if (!m_swapchain->init(m_swapchain_dims.width, m_swapchain_dims.height))
+ 	{
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step swapchain->init FAILED");
+ 		swapchain_unavailable = true;
+ 	}
+ 	else
+ 	{
+ 		// Same as in reinitialize_swapchain: the surface can hand back a different extent
+ 		// than the one requested, and m_swapchain_dims sizes the present framebuffer.
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VK", "step swapchain->init ok");
+ 		m_swapchain_dims.width = m_swapchain->get_width();
+ 		m_swapchain_dims.height = m_swapchain->get_height();
+ 	}
+diff --git a/rpcs3/Emu/RSX/VK/VKGSRenderTypes.hpp b/rpcs3/Emu/RSX/VK/VKGSRenderTypes.hpp
+index 59904cd..3c8f0a5 100644
+--- a/rpcs3/Emu/RSX/VK/VKGSRenderTypes.hpp
++++ b/rpcs3/Emu/RSX/VK/VKGSRenderTypes.hpp
+@@ -23,7 +23,13 @@
+ #define VK_FRAGMENT_CONSTANTS_BUFFER_SIZE_M 16
+ #define VK_INDEX_RING_BUFFER_SIZE_M 16
+ 
++#ifdef HARMONYOS
++// Each used Maleoon command buffer retains driver allocations. A desktop ring
++// of 512 buffers holds gigabytes outside VMA's tracked resource allocations.
++#define VK_MAX_ASYNC_CB_COUNT 32
++#else
+ #define VK_MAX_ASYNC_CB_COUNT 512
++#endif
+ 
+ #define FRAME_PRESENT_TIMEOUT 10000000ull // 10 seconds
+ #define GENERAL_WAIT_TIMEOUT  2000000ull  // 2 seconds
+diff --git a/rpcs3/Emu/RSX/VK/VulkanAPI.h b/rpcs3/Emu/RSX/VK/VulkanAPI.h
+index 48418d0..83c2709 100644
+--- a/rpcs3/Emu/RSX/VK/VulkanAPI.h
++++ b/rpcs3/Emu/RSX/VK/VulkanAPI.h
+@@ -3,6 +3,8 @@
+ // Configure vulkan.h
+ #ifdef _WIN32
+ #define VK_USE_PLATFORM_WIN32_KHR
++#elif defined(HARMONYOS)
++#define VK_USE_PLATFORM_OHOS
+ #elif defined(__APPLE__)
+ #define VK_USE_PLATFORM_METAL_EXT
+ #elif defined(ANDROID)
+@@ -38,6 +40,7 @@
+ 
+ // Undefine header configuration variables
+ #undef VK_USE_PLATFORM_WIN32_KHR
++#undef VK_USE_PLATFORM_OHOS
+ #undef VK_USE_PLATFORM_METAL_EXT
+ #undef VK_USE_PLATFORM_ANDROID_KHR
+ #undef VK_USE_PLATFORM_XLIB_KHR
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/commands.cpp b/rpcs3/Emu/RSX/VK/vkutils/commands.cpp
+index 9740d74..73b9a31 100644
+--- a/rpcs3/Emu/RSX/VK/vkutils/commands.cpp
++++ b/rpcs3/Emu/RSX/VK/vkutils/commands.cpp
+@@ -74,7 +74,13 @@ namespace vk
+ 	void command_buffer::reset()
+ 	{
+ 		// Do the driver reset
++#ifdef HARMONYOS
++		// begin() waits for the submission fence before resetting. Return the
++		// retired recording's driver memory instead of retaining its peak size.
++		CHECK_RESULT(vkResetCommandBuffer(commands, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
++#else
+ 		CHECK_RESULT(vkResetCommandBuffer(commands, 0));
++#endif
+ 	}
+ 
+ 	void command_buffer::clear_state_cache()
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/data_heap.cpp b/rpcs3/Emu/RSX/VK/vkutils/data_heap.cpp
+index 3ee8109..88a2182 100644
+--- a/rpcs3/Emu/RSX/VK/vkutils/data_heap.cpp
++++ b/rpcs3/Emu/RSX/VK/vkutils/data_heap.cpp
+@@ -119,7 +119,7 @@ namespace vk
+ 		// the ceiling by free memory so that decision gets made before the fatal allocation
+ 		// rather than after it. A quarter of what is free leaves room for the copy, since the
+ 		// old heap is still resident while the new one is created.
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || defined(HARMONYOS)
+ 		// A hard ceiling, because free memory is not the constraint that matters.
+ 		//
+ 		// The first attempt bounded this by utils::get_avail_memory()/4 and did nothing: that
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/device.cpp b/rpcs3/Emu/RSX/VK/vkutils/device.cpp
+index 4539213..0f1b0b5 100644
+--- a/rpcs3/Emu/RSX/VK/vkutils/device.cpp
++++ b/rpcs3/Emu/RSX/VK/vkutils/device.cpp
+@@ -737,7 +737,7 @@ namespace vk
+ 	{
+ 		const u64 device_local = device_local_total;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || defined(HARMONYOS)
+ 		// Unified memory: the "VRAM" figure is system RAM, most of which belongs to the OS
+ 		// and everything else running. Budget against what is actually free, keeping back
+ 		// room for the emulator itself, and clamp so the answer stays sane whether the phone
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/instance.cpp b/rpcs3/Emu/RSX/VK/vkutils/instance.cpp
+index 9df5591..abb6dd6 100644
+--- a/rpcs3/Emu/RSX/VK/vkutils/instance.cpp
++++ b/rpcs3/Emu/RSX/VK/vkutils/instance.cpp
+@@ -1,4 +1,5 @@
+ #include "stdafx.h"
++#include <hilog/log.h>
+ #include "instance.h"
+ 
+ #include "Emu/system_config.h"
+@@ -221,6 +222,12 @@ namespace vk
+ 				extensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
+ 				found_surface_ext = true;
+ 			}
++#elif defined(HARMONYOS)
++			if (support.is_supported(VK_OHOS_SURFACE_EXTENSION_NAME))
++			{
++				extensions.push_back(VK_OHOS_SURFACE_EXTENSION_NAME);
++				found_surface_ext = true;
++			}
+ #endif
+ 			if (!found_surface_ext)
+ 			{
+@@ -461,11 +468,16 @@ namespace vk
+ 			present_possible = false;
+ 		}
+ 
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VKQ",
++			"queues gfx=%{public}u present=%{public}u transfer=%{public}u present_possible=%{public}d",
++			graphics_queue_idx, present_queue_idx, transfer_queue_idx, present_possible ? 1 : 0);
++
+ 		if (!present_possible)
+ 		{
+ 			//Native(sw) swapchain
+ 			rsx_log.error("It is not possible for the currently selected GPU to present to the window (Likely caused by NVIDIA driver running the current display)");
+ 			rsx_log.warning("Falling back to software present support (native windowing API)");
++			OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VKQ", "creating swapchain_NATIVE (stub)");
+ 			auto swapchain = new swapchain_NATIVE(dev, -1, graphics_queue_idx, transfer_queue_idx);
+ 			swapchain->create(window_handle);
+ 			return swapchain;
+@@ -503,6 +515,7 @@ namespace vk
+ 
+ 		color_space = surfFormats[0].colorSpace;
+ 
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_VKQ", "creating swapchain_WSI now");
+ 		return new swapchain_WSI(dev, present_queue_idx, graphics_queue_idx, transfer_queue_idx, format, m_surface, color_space, !surface_config.supports_automatic_wm_reports);
+ 	}
+ }
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/memory.cpp b/rpcs3/Emu/RSX/VK/vkutils/memory.cpp
+index 18a6ef0..5df4161 100644
+--- a/rpcs3/Emu/RSX/VK/vkutils/memory.cpp
++++ b/rpcs3/Emu/RSX/VK/vkutils/memory.cpp
+@@ -1,4 +1,8 @@
+ #include "device.h"
++#ifdef HARMONYOS
++#include <chrono>
++#include <hilog/log.h>
++#endif
+ #include "memory.h"
+ #include "Emu/system_config.h"
+ 
+@@ -256,6 +260,8 @@ namespace vk
+ 		// Allow fastest possible allocation on start
+ 		set_fastest_allocation_flags();
+ 
++#if !defined(HARMONYOS) && !defined(__ANDROID__)
++		// Unified mobile heaps serve uploads and rendering; never exclude them.
+ 		// Determine the rebar heap. We will exclude it from stats
+ 		const auto& memory_map = dev.get_memory_mapping();
+ 		if (memory_map.device_bar_total_bytes !=
+@@ -272,6 +278,7 @@ namespace vk
+ 				}
+ 			}
+ 		}
++#endif
+ 	}
+ 
+ 	void mem_allocator_vma::destroy()
+@@ -458,13 +465,30 @@ namespace vk
+ 		{
+ 			if (!info.budget)
+ 			{
+-				break;
++				continue;
+ 			}
+ 
+ 			const float this_usage = (info.usage * 100.f) / info.budget;
+ 			max_usage = std::max(max_usage, this_usage);
+ 		}
+ 
++#ifdef HARMONYOS
++		const auto now = std::chrono::steady_clock::now();
++		static auto last_report = now - std::chrono::seconds(5);
++		if (now - last_report >= std::chrono::seconds(5))
++		{
++			last_report = now;
++			for (usz i = 0; i < 4; ++i)
++			{
++				const auto& info = stats[i];
++				OH_LOG_Print(LOG_APP, LOG_WARN, 0x3201, "HPS3_VK",
++					"HPS3_GPU_MEMORY heap=%{public}u blocks=%{public}lluM allocated=%{public}lluM usage=%{public}lluM budget=%{public}lluM rebar=%{public}u",
++					static_cast<u32>(i), static_cast<unsigned long long>(info.statistics.blockBytes / 0x100000),
++					static_cast<unsigned long long>(info.statistics.allocationBytes / 0x100000), static_cast<unsigned long long>(info.usage / 0x100000),
++					static_cast<unsigned long long>(info.budget / 0x100000), m_rebar_heap_idx);
++			}
++		}
++#endif
+ 		return max_usage;
+ 	}
+ 
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/swapchain.cpp b/rpcs3/Emu/RSX/VK/vkutils/swapchain.cpp
+index 92771ed..9576a8a 100644
+--- a/rpcs3/Emu/RSX/VK/vkutils/swapchain.cpp
++++ b/rpcs3/Emu/RSX/VK/vkutils/swapchain.cpp
+@@ -1,6 +1,7 @@
+ #include "stdafx.h"
++#include <hilog/log.h>
+ #include "swapchain.h"
+-#include "Emu/system_config.h"
++#include "Emu/system_config.h"
+ 
+ namespace vk
+ {
+@@ -87,10 +88,26 @@ namespace vk
+ 	// WSI implementation
+ 	void swapchain_WSI::init_swapchain_images(render_device& dev, u32 /*preferred_count*/)
+ 	{
++		// A null swapchain means vkCreateSwapchainKHR failed earlier (typically
++		// VK_ERROR_NATIVE_WINDOW_IN_USE_KHR). Handing that null to the driver is
++		// what faults inside it at NULL+8, so bail out here instead and let the
++		// caller report a failed init.
++		if (m_vk_swapchain == VK_NULL_HANDLE)
++		{
++			OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP",
++				"init_swapchain_images skipped: null swapchain");
++			return;
++		}
++
+ 		u32 nb_swap_images = 0;
+ 		_vkGetSwapchainImagesKHR(dev, m_vk_swapchain, &nb_swap_images, nullptr);
+ 
+-		if (!nb_swap_images) fmt::throw_exception("Driver returned 0 images for swapchain");
++		if (!nb_swap_images)
++		{
++			OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP",
++				"driver returned 0 swapchain images");
++			return;
++		}
+ 
+ 		std::vector<VkImage> vk_images;
+ 		vk_images.resize(nb_swap_images);
+@@ -107,6 +124,10 @@ namespace vk
+ 		: WSI_swapchain_base(gpu, present_queue, graphics_queue, transfer_queue, format)
+ 	{
+ 		_vkCreateSwapchainKHR = reinterpret_cast<PFN_vkCreateSwapchainKHR>(vkGetDeviceProcAddr(dev, "vkCreateSwapchainKHR"));
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "fp create=%{public}p destroy=%{public}p getimg=%{public}p",
++			reinterpret_cast<void*>(_vkCreateSwapchainKHR),
++			reinterpret_cast<void*>(reinterpret_cast<PFN_vkDestroySwapchainKHR>(vkGetDeviceProcAddr(dev, "vkDestroySwapchainKHR"))),
++			reinterpret_cast<void*>(reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(dev, "vkGetSwapchainImagesKHR"))));
+ 		_vkDestroySwapchainKHR = reinterpret_cast<PFN_vkDestroySwapchainKHR>(vkGetDeviceProcAddr(dev, "vkDestroySwapchainKHR"));
+ 		_vkGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(dev, "vkGetSwapchainImagesKHR"));
+ 		_vkAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(vkGetDeviceProcAddr(dev, "vkAcquireNextImageKHR"));
+@@ -219,18 +240,24 @@ namespace vk
+ 
+ 	bool swapchain_WSI::init()
+ 	{
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "init enter w=%{public}u h=%{public}u", m_width, m_height);
+ 		if (dev.get_present_queue() == VK_NULL_HANDLE)
+ 		{
+ 			rsx_log.error("Cannot create WSI swapchain without a present queue");
+ 			return false;
+ 		}
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "present queue ok");
+ 
+ 		m_surface_is_lost = false;
+ 
+ 		VkSwapchainKHR old_swapchain = m_vk_swapchain;
+ 		vk::physical_device& gpu = const_cast<vk::physical_device&>(dev.gpu());
+ 
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "init_surface_capabilities begin");
+ 		auto [surface_descriptors, should_specify_exclusive_full_screen_mode] = init_surface_capabilities();
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "caps ok min=%{public}u max=%{public}u cur=%{public}u",
++			surface_descriptors.minImageExtent.width, surface_descriptors.maxImageExtent.width,
++			surface_descriptors.currentExtent.width);
+ 
+ 		if (surface_descriptors.maxImageExtent.width < m_width ||
+ 			surface_descriptors.maxImageExtent.height < m_height)
+@@ -273,6 +300,7 @@ namespace vk
+ 			vk::die_with_error(res);
+ 		}
+ 
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "present modes count=%{public}u", nb_available_modes);
+ 		std::vector<VkPresentModeKHR> present_modes(nb_available_modes);
+ 
+ 		if (const VkResult res = vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, m_surface, &nb_available_modes, present_modes.data());
+@@ -344,7 +372,9 @@ namespace vk
+ 				break;
+ 		}
+ 
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "about to log present mode (rsx_log.notice)");
+ 		rsx_log.notice("Swapchain: present mode %d in use.", static_cast<int>(swapchain_present_mode));
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "rsx_log.notice survived");
+ 
+ 		u32 nb_swap_images = surface_descriptors.minImageCount + 1;
+ 
+@@ -403,6 +433,7 @@ namespace vk
+ 				static_cast<u32>(surface_descriptors.currentTransform));
+ 		}
+ 
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP", "building swap_info");
+ 		VkSwapchainCreateInfoKHR swap_info = {};
+ 		swap_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+ 		swap_info.surface = m_surface;
+@@ -516,7 +547,35 @@ namespace vk
+ 		rsx_log.notice("Swapchain: requesting full screen exclusive mode %d.", static_cast<int>(full_screen_exclusive_info.fullScreenExclusive));
+ #endif
+ 
+-		_vkCreateSwapchainKHR(dev, &swap_info, nullptr, &m_vk_swapchain);
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP",
++			"create info: surface=%{public}p minImg=%{public}u fmt=%{public}d cs=%{public}d usage=0x%{public}x pre=%{public}d comp=%{public}d extent=%{public}ux%{public}u layers=%{public}u mode=%{public}d",
++			static_cast<void*>(swap_info.surface), swap_info.minImageCount,
++			static_cast<int>(swap_info.imageFormat), static_cast<int>(swap_info.imageColorSpace),
++			static_cast<unsigned>(swap_info.imageUsage), static_cast<int>(swap_info.preTransform),
++			static_cast<int>(swap_info.compositeAlpha), swap_info.imageExtent.width,
++			swap_info.imageExtent.height, swap_info.imageArrayLayers,
++			static_cast<int>(swap_info.presentMode));
++		const VkResult sc_res = _vkCreateSwapchainKHR(dev, &swap_info, nullptr, &m_vk_swapchain);
++		OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP",
++			"vkCreateSwapchainKHR result=%{public}d swapchain=%{public}p",
++			static_cast<int>(sc_res), static_cast<void*>(m_vk_swapchain));
++
++		// Surface the real reason instead of continuing with a null handle. The
++		// caller treats false as "swapchain unavailable" and retries on the next
++		// frame; a lost surface is recoverable, and the common cause here is a
++		// native window that still backs another swapchain.
++		if (sc_res != VK_SUCCESS)
++		{
++			if (sc_res == VK_ERROR_SURFACE_LOST_KHR)
++			{
++				m_surface_is_lost = true;
++			}
++
++			OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP",
++				"swapchain init failed (%{public}d); reporting unavailable",
++				static_cast<int>(sc_res));
++			return false;
++		}
+ 
+ 		if (old_swapchain)
+ 		{
+@@ -529,6 +588,14 @@ namespace vk
+ 		}
+ 
+ 		init_swapchain_images(dev);
++
++		if (swapchain_images.empty())
++		{
++			OH_LOG_Print(LOG_APP, LOG_ERROR, 0x3201, "HPS3_SWAP",
++				"swapchain has no images; reporting unavailable");
++			return false;
++		}
++
+ 		return true;
+ 	}
+ 
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/swapchain.h b/rpcs3/Emu/RSX/VK/vkutils/swapchain.h
+index f5128fc..3f94340 100644
+--- a/rpcs3/Emu/RSX/VK/vkutils/swapchain.h
++++ b/rpcs3/Emu/RSX/VK/vkutils/swapchain.h
+@@ -1,8 +1,10 @@
+ #pragma once
+ 
+-#if defined (_WIN32)
+-#include "swapchain_win32.hpp"
+-#elif defined (ANDROID)
++#if defined (_WIN32)
++#include "swapchain_win32.hpp"
++#elif defined (HARMONYOS)
++#include "swapchain_ohos.hpp"
++#elif defined (ANDROID)
+ #include "swapchain_android.hpp"
+ #elif defined (__APPLE__)
+ #include "swapchain_macos.hpp"
+diff --git a/rpcs3/Emu/RSX/display.h b/rpcs3/Emu/RSX/display.h
+index 191a111..c00e1e8 100644
+--- a/rpcs3/Emu/RSX/display.h
++++ b/rpcs3/Emu/RSX/display.h
+@@ -17,6 +17,9 @@ using Window  = unsigned long;
+ 
+ #ifdef _WIN32
+ using display_handle_t = HWND;
++#elif defined(HARMONYOS)
++struct NativeWindow;
++using display_handle_t = NativeWindow*;
+ #elif defined(__APPLE__)
+ using display_handle_t = void*; // NSView
+ #else
+diff --git a/rpcs3/Emu/system_config.h b/rpcs3/Emu/system_config.h
+index dced848..d4bde5c 100644
+--- a/rpcs3/Emu/system_config.h
++++ b/rpcs3/Emu/system_config.h
+@@ -187,7 +187,7 @@ struct cfg_root : cfg::node
+ 		cfg::_bool disable_msl_fast_math{ this, "Disable MSL Fast Math", false };
+ 		cfg::_bool disable_async_host_memory_manager{ this, "Disable Asynchronous Memory Manager", false, true };
+ 		cfg::_enum<output_scaling_mode> output_scaling{ this, "Output Scaling Mode", output_scaling_mode::bilinear, true };
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || defined(HARMONYOS)
+ 		// ARMSX3: Lossless Scaling frame generation.
+ 		//
+ 		// Default off and it stays off unless the user supplies shaders from their own copy of
+diff --git a/rpcs3/Emu/title.cpp b/rpcs3/Emu/title.cpp
+index 62306f0..7aa2df8 100644
+--- a/rpcs3/Emu/title.cpp
++++ b/rpcs3/Emu/title.cpp
+@@ -5,7 +5,7 @@
+ #include "util/sysinfo.hpp"
+ #include "Emu/system_config.h"
+ 
+-#if !(defined(__ANDROID__) || defined(__APPLE__))
++#if !(defined(__ANDROID__) || defined(__APPLE__) || defined(__MUSL__))
+ #include "Emu/RSX/GL/glutils/capabilities.h"
+ #endif
+ 
+@@ -84,7 +84,7 @@ namespace rpcs3
+ 						title_string += "null";
+ 						break;
+ 					case video_renderer::opengl:
+-#if !(defined(__ANDROID__) || defined(__APPLE__))
++#if !(defined(__ANDROID__) || defined(__APPLE__) || defined(__MUSL__))
+ 						title_string += gl::get_device_name();
+ #else
+ 						title_string += "OpenGL GPU";
+diff --git a/rpcs3/Input/mouse_gyro_handler.cpp b/rpcs3/Input/mouse_gyro_handler.cpp
+index c755e1b..eb1e9e1 100644
+--- a/rpcs3/Input/mouse_gyro_handler.cpp
++++ b/rpcs3/Input/mouse_gyro_handler.cpp
+@@ -5,7 +5,7 @@
+ // QEvent/QWindow). pad_thread holds a mouse_gyro_handler BY VALUE and calls
+ // set_enabled()/apply_gyro(), so Android needs this translation unit even
+ // though it has no mouse -- just not the Qt half.
+-#ifndef __ANDROID__
++#if !defined(__ANDROID__) && !defined(HARMONYOS)
+ #include <QEvent>
+ #include <QMouseEvent>
+ #include <QWheelEvent>
+@@ -68,7 +68,7 @@ void mouse_gyro_handler::set_gyro_y(s32 steps)
+ 	m_gyro_y = static_cast<u16>(std::clamp(m_gyro_y + steps, 0, DEFAULT_MOTION_Y * 2 - 1));
+ }
+ 
+-#ifndef __ANDROID__
++#if !defined(__ANDROID__) && !defined(HARMONYOS)
+ void mouse_gyro_handler::handle_event(QEvent* ev, const QWindow& win)
+ {
+ 	if (!m_enabled)
+diff --git a/rpcs3/Input/pad_thread.cpp b/rpcs3/Input/pad_thread.cpp
+index 4006eba..58cf647 100644
+--- a/rpcs3/Input/pad_thread.cpp
++++ b/rpcs3/Input/pad_thread.cpp
+@@ -6,7 +6,7 @@
+ #include "dualsense_pad_handler.h"
+ #include "skateboard_pad_handler.h"
+ #include "ps_move_handler.h"
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || defined(HARMONYOS)
+ #include "virtual_pad_handler.h"
+ #endif
+ #ifdef _WIN32
+@@ -18,7 +18,7 @@
+ #ifdef HAVE_SDL3
+ #include "sdl_pad_handler.h"
+ #endif
+-#ifndef ANDROID
++#if !defined(ANDROID) && !defined(HARMONYOS)
+ #include "keyboard_pad_handler.h"
+ #endif
+ #include "Emu/Io/Null/NullPadHandler.h"
+@@ -160,7 +160,7 @@ void pad_thread::Init()
+ 
+ 	input_log.trace("Using pad config:\n%s", g_cfg_input);
+ 
+-#ifndef ANDROID
++#if !defined(ANDROID) && !defined(HARMONYOS)
+ 	std::shared_ptr<keyboard_pad_handler> keyptr;
+ #endif
+ 
+@@ -183,7 +183,7 @@ void pad_thread::Init()
+ 		{
+ 			if (handler_type == pad_handler::keyboard)
+ 			{
+-#ifndef ANDROID
++#if !defined(ANDROID) && !defined(HARMONYOS)
+ 				keyptr = std::make_shared<keyboard_pad_handler>();
+ 				keyptr->moveToThread(static_cast<QThread*>(m_curthread));
+ 				keyptr->SetTargetWindow(static_cast<QWindow*>(m_curwindow));
+@@ -941,7 +941,7 @@ std::shared_ptr<PadHandlerBase> pad_thread::GetHandler(pad_handler type)
+ 	case pad_handler::null:
+ 		return std::make_shared<NullPadHandler>();
+ 	case pad_handler::keyboard:
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(HARMONYOS)
+ 		return std::make_shared<NullPadHandler>();
+ #else
+ 		return std::make_shared<keyboard_pad_handler>();
+@@ -970,7 +970,7 @@ std::shared_ptr<PadHandlerBase> pad_thread::GetHandler(pad_handler type)
+ 	case pad_handler::evdev:
+ 		return std::make_shared<evdev_joystick_handler>();
+ #endif
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || defined(HARMONYOS)
+ 	// ARMSX3: on-screen touch controls. Guard must match the enum value in
+ 	// Emu/Io/pad_config_types.h and the fmt_class_string case beside it.
+ 	case pad_handler::virtual_pad:
+diff --git a/rpcs3/util/atomic.cpp b/rpcs3/util/atomic.cpp
+index e1503ac..f488081 100644
+--- a/rpcs3/util/atomic.cpp
++++ b/rpcs3/util/atomic.cpp
+@@ -39,7 +39,7 @@ static bool has_waitv()
+ {
+ 	static const bool s_has_waitv = []
+ 	{
+-#ifndef ANDROID
++#if !defined(ANDROID) && !defined(HARMONYOS)
+ 		// FIXME: it produces SIGSYS signal
+ 		syscall(SYS_futex_waitv, 0, 0, 0, 0, 0);
+ 		return errno != ENOSYS;
+diff --git a/rpcs3/util/vm_native.cpp b/rpcs3/util/vm_native.cpp
+index dd2b041..94cb493 100644
+--- a/rpcs3/util/vm_native.cpp
++++ b/rpcs3/util/vm_native.cpp
+@@ -331,7 +331,10 @@ namespace utils
+ 		}
+ 		else
+ 		{
+-			ensure(::madvise(reinterpret_cast<void*>(ptr64 & -get_page_size()), size + (ptr64 & (get_page_size() - 1)), MADV_WILLNEED) != -1);
++			// MADV_WILLNEED is only a prefetch hint. The mapping is already
++			// committed by mprotect above, so a kernel rejecting this hint must
++			// not abort startup or prevent the memory from being used.
++			::madvise(reinterpret_cast<void*>(ptr64 & -get_page_size()), size + (ptr64 & (get_page_size() - 1)), MADV_WILLNEED);
+ 		}
+ #endif
+ 	}
+@@ -757,7 +760,10 @@ namespace utils
+ #else
+ 
+ #ifdef __linux__
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(HARMONYOS)
++		// HarmonyOS sandboxes deny reads of /proc/sys/vm/overcommit_memory, so
++		// probing it throws from a static initializer (fs::xnull -> emergency_exit).
++		// Like the Android path, assume overcommit is usable and go straight to memfd.
+ 		if constexpr (constexpr char c = '?')
+ #else
+ 		if (const char c = fs::file("/proc/sys/vm/overcommit_memory").read<char>(); c == '0' || c == '1')
+diff --git a/rpcs3/Emu/RSX/VK/vkutils/swapchain_ohos.hpp b/rpcs3/Emu/RSX/VK/vkutils/swapchain_ohos.hpp
+new file mode 100644
+index 0000000..85689a0
+--- /dev/null
++++ b/rpcs3/Emu/RSX/VK/vkutils/swapchain_ohos.hpp
+@@ -0,0 +1,23 @@
++#pragma once
++
++#include "swapchain_core.h"
++
++namespace vk
++{
++#if defined(HARMONYOS)
++	using swapchain_OHOS = native_swapchain_base;
++	using swapchain_NATIVE = swapchain_OHOS;
++
++	[[maybe_unused]] static
++	VkSurfaceKHR make_WSI_surface(VkInstance vk_instance, display_handle_t window_handle, WSI_config* /*config*/)
++	{
++		VkSurfaceKHR result = VK_NULL_HANDLE;
++		VkSurfaceCreateInfoOHOS create_info{};
++		create_info.sType = VK_STRUCTURE_TYPE_SURFACE_CREATE_INFO_OHOS;
++		create_info.window = reinterpret_cast<OHNativeWindow*>(window_handle);
++
++		CHECK_RESULT(vkCreateSurfaceOHOS(vk_instance, &create_info, nullptr, &result));
++		return result;
++	}
++#endif
++}
